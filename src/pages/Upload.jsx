@@ -49,23 +49,40 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
       const token = sessionData?.session?.access_token
       const bucket = 'certvault-certificates'
       const base = import.meta.env.VITE_SUPABASE_URL
-      const uploadUrl = `${base.replace(/\/$/, '')}/storage/v1/object/${bucket}/${encodeURIComponent(path)}`
+  // encode path but keep slashes for storage path
+  const encodedPath = path.split('/').map((p) => encodeURIComponent(p)).join('/')
+  const uploadUrl = `${base.replace(/\/$/, '')}/storage/v1/object/${bucket}/${encodedPath}`
 
-      await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.open('PUT', uploadUrl, true)
-        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
-        xhr.setRequestHeader('x-upsert', 'false')
-        xhr.upload.onprogress = function (e) {
-          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
-        }
-        xhr.onload = function () {
-          if (xhr.status >= 200 && xhr.status < 300) resolve(true)
-          else reject(new Error('Upload failed: ' + xhr.status))
-        }
-        xhr.onerror = function () { reject(new Error('Upload network error')) }
-        xhr.send(file)
-      })
+      // Try XHR PUT to get progress; if it fails, fallback to supabase JS upload
+      try {
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.open('PUT', uploadUrl, true)
+          if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+          // set content type for the uploaded file
+          if (file.type) xhr.setRequestHeader('Content-Type', file.type)
+          xhr.setRequestHeader('x-upsert', 'false')
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
+          }
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300) resolve(true)
+            else {
+              const body = xhr.responseText || ''
+              reject(new Error(`XHR upload failed: ${xhr.status} ${body}`))
+            }
+          }
+          xhr.onerror = function () { reject(new Error('Upload network error')) }
+          xhr.send(file)
+        })
+      } catch (xhrErr) {
+        // log XHR error and attempt fallback via supabase client upload
+        console.warn('XHR upload failed, falling back to supabase.storage.upload:', xhrErr)
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: false })
+        if (uploadError) throw uploadError
+        // best-effort: set progress to complete
+        setProgress(100)
+      }
 
   // currentUser determined
   // prepare payload

@@ -2,6 +2,9 @@ import { useEffect, useState, useRef } from 'react'
 import JSZip from 'jszip'
 import { supabase } from '../lib/supabaseClient'
 import Upload from './Upload'
+import Header from '../components/Header'
+import Toast from '../components/Toast'
+import { FaDownload } from 'react-icons/fa'
 
 const PAGE_SIZE = 8
 
@@ -345,17 +348,10 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>CertVault</h2>
-        <div>
-          <span style={{ marginRight: 12 }}>{user?.email}</span>
-          <button onClick={() => setShowUpload((s) => !s)} style={{ marginRight: 8 }}>{showUpload ? 'Back' : 'Upload'}</button>
-          <button onClick={signOut}>Sign out</button>
-        </div>
-      </div>
+    <div className="p-6">
+      <Header userEmail={user?.email} onUploadToggle={() => setShowUpload((s) => !s)} onSignOut={signOut} showUpload={showUpload} />
 
-      {showUpload ? (
+    {showUpload ? (
   <Upload authoritySuggestions={authoritySuggestions} onUploaded={(payload) => {
           setShowUpload(false)
           setPage(1)
