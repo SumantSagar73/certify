@@ -11,97 +11,6 @@ import { FaDownload } from 'react-icons/fa'
 
 const PAGE_SIZE = 8
 
-// helper: try removing an object from storage with a few common encodings
-async function tryRemoveStoragePath(bucket, path) {
-  const candidates = new Set()
-  if (!path) return false
-  const raw = String(path).trim()
-  candidates.add(raw)
-
-  // try trimming leading slash
-  if (raw.startsWith('/')) candidates.add(raw.replace(/^\//, ''))
-
-  // try removing 'public/' prefix if present
-  if (raw.startsWith('public/')) candidates.add(raw.replace(/^public\//, ''))
-  if (raw.includes('/public/')) candidates.add(raw.split('/public/').pop())
-
-  // if a full URL was stored, try to extract the path after the bucket
-  try {
-    const u = new URL(raw)
-    // attempt to find bucket in pathname
-    const parts = u.pathname.split('/').filter(Boolean)
-    const idx = parts.indexOf(bucket)
-    if (idx >= 0 && parts.length > idx + 0) {
-      const sub = parts.slice(idx + 1).join('/')
-      if (sub) candidates.add(sub)
-      // also try without any leading 'public' segment
-      if (sub.startsWith('public/')) candidates.add(sub.replace(/^public\//, ''))
-    }
-    // also try last two segments (user/file)
-    if (parts.length >= 2) candidates.add(parts.slice(-2).join('/'))
-  // also try extracting after known storage URL patterns
-  const objMatch = raw.match(/\/storage\/v1\/object\/[^/]+\/(.*)$/)
-  if (objMatch && objMatch[1]) candidates.add(objMatch[1])
-  const obj2 = raw.match(/\/object\/([^/]+)\/(.*)$/)
-  if (obj2 && obj2[2]) candidates.add(obj2[2])
-  } catch (e) {
-    // not a URL — ignore parsing error
-    // keep going with other variants
-    void e
-  }
-
-  // encoded/decoded segment variants
-  try {
-    const decoded = decodeURIComponent(raw)
-    if (decoded !== raw) candidates.add(decoded)
-  } catch (e) {
-    // ignore decode errors
-    void e
-  }
-  try {
-    const encoded = raw.split('/').map((s) => encodeURIComponent(s)).join('/')
-    if (encoded !== raw) candidates.add(encoded)
-  } catch (e) {
-    // ignore encode errors
-    void e
-  }
-
-  for (const p of Array.from(candidates)) {
-    if (!p) continue
-    try {
-      const { data, error } = await supabase.storage.from(bucket).remove([p])
-      if (!error) {
-        console.debug('removed storage object', p, data)
-        return true
-      }
-      // continue on not-found
-      if (error && /not found|404/i.test(error.message || '')) {
-        console.debug('not found for path variant', p)
-        continue
-      }
-      console.warn('remove returned error for path variant', p, error)
-    } catch (err) {
-      console.warn('tryRemoveStoragePath attempt failed for', p, err)
-      // continue trying other variants
-    }
-  }
-  // final attempt: if the raw string contains query params or fragments, try stripping
-  try {
-    const clean = raw.split('?')[0].split('#')[0]
-    if (clean && !Array.from(candidates).includes(clean)) {
-      const { data, error } = await supabase.storage.from(bucket).remove([clean])
-      if (!error) {
-        console.debug('removed storage object (cleaned)', clean, data)
-        return true
-      }
-      console.debug('final clean removal attempt failed', clean, error)
-    }
-  } catch (e) {
-    void e
-  }
-  return false
-}
-
 function EditModal({ cert, onClose, onSave }) {
   const [title, setTitle] = useState(cert.title || '')
   const [issuingAuthority, setIssuingAuthority] = useState(cert.issuing_authority || '')
@@ -309,38 +218,62 @@ export default function Dashboard({ session }) {
   }
 
   async function handleDelete(c) {
-    // show undo option for 7s before actual deletion
     if (!confirm('Delete this certificate? You will have 7 seconds to undo.')) return
-    setPendingDelete(c)
-    // optimistic UI: remove from list immediately
-    setCerts((cs) => cs.filter((x) => x.id !== c.id))
-  const t = setTimeout(async () => {
+    setLoading(true)
+    try {
+      // Delete the DB row first so the item doesn't reappear after reload
+      const { data: deletedRow, error: delErr } = await supabase.from('certificates').delete().eq('id', c.id).select().single()
+      if (delErr) throw delErr
+
+      // update UI immediately
+      setCerts((cs) => (cs || []).filter((x) => x.id !== c.id))
+      setTotal((t) => Math.max(0, (t || 1) - 1))
+
+      // set pendingDelete so user can undo within window
+      setPendingDelete(deletedRow || c)
+      // attempt to remove storage (best-effort)
+      const { error: storageErr } = await supabase.storage.from('certvault-certificates').remove([c.storage_path])
+      if (storageErr) console.warn('storage remove error', storageErr)
+
+      // schedule clearing the undo window
+      const t = setTimeout(() => {
+        setPendingDelete(null)
+        pendingDeleteRef.current = null
+      }, 7000)
+      pendingDeleteRef.current = t
+    } catch (err) {
+      console.error('delete error', err)
+      alert('Delete failed: ' + (err.message || String(err)))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function undoDelete() {
+    if (!pendingDelete) return
+    // cancel scheduled clear
+    if (pendingDeleteRef.current) clearTimeout(pendingDeleteRef.current)
+    ;(async () => {
       setLoading(true)
       try {
-    // attempt robust removal (try several encodings)
-    const removed = await tryRemoveStoragePath('certvault-certificates', c.storage_path)
-    if (!removed) throw new Error('Failed to remove storage object for ' + c.storage_path)
-    const { error: delErr } = await supabase.from('certificates').delete().eq('id', c.id)
-    if (delErr) throw delErr
+        // Attempt to re-insert the deleted row. Remove server-managed fields.
+        const toInsert = { ...pendingDelete }
+        delete toInsert.id
+        delete toInsert.created_at
+        const { data: inserted, error } = await supabase.from('certificates').insert([toInsert]).select().single()
+        if (error) throw error
+        // merge back into UI
+        setCerts((cs) => [inserted, ...(cs || [])])
+        setTotal((t) => (typeof t === 'number' ? t + 1 : 1))
       } catch (err) {
-        console.error('delete error', err)
-        alert('Delete failed: ' + (err.message || String(err)))
+        console.error('undo insert failed', err)
+        alert('Failed to undo delete: ' + (err.message || String(err)))
       } finally {
         setLoading(false)
         setPendingDelete(null)
         pendingDeleteRef.current = null
       }
-    }, 7000)
-    pendingDeleteRef.current = t
-  }
-
-  function undoDelete() {
-    if (!pendingDelete) return
-    // cancel scheduled delete and restore item into list
-    if (pendingDeleteRef.current) clearTimeout(pendingDeleteRef.current)
-    setCerts((cs) => [pendingDelete, ...(cs || [])])
-    setPendingDelete(null)
-    pendingDeleteRef.current = null
+    })()
   }
 
   function toggleSelect(id) {
@@ -355,18 +288,8 @@ export default function Dashboard({ session }) {
       // fetch selected certs to get storage paths
       const { data } = await supabase.from('certificates').select('id,storage_path').in('id', selected)
       if (data && data.length > 0) {
-        // remove storage objects one-by-one using robust remover
-        const failed = []
-        await Promise.all(data.map(async (d) => {
-          try {
-            const ok = await tryRemoveStoragePath('certvault-certificates', d.storage_path)
-            if (!ok) failed.push(d.storage_path)
-          } catch (err) {
-            console.warn('bulk remove attempt failed for', d.storage_path, err)
-            failed.push(d.storage_path)
-          }
-        }))
-        if (failed.length) throw new Error('Failed to remove some storage objects: ' + failed.join(', '))
+        // remove storage objects one-by-one
+        await Promise.all(data.map((d) => supabase.storage.from('certvault-certificates').remove([d.storage_path])))
       }
       // remove metadata rows
       const { error } = await supabase.from('certificates').delete().in('id', selected)
@@ -549,13 +472,11 @@ export default function Dashboard({ session }) {
 
           {/* Bulk action toolbar */}
           {selected.length > 0 && (
-            <div className="mb-4 p-3 bg-neutral-800 rounded-lg flex items-center gap-3 flex-wrap">
-              <strong className="text-white mr-2">{selected.length} selected</strong>
-              <div className="flex gap-2">
-                <Button onClick={bulkDelete} className="bg-red-600 hover:bg-red-500 px-3 py-1 text-sm">Delete</Button>
-                <Button onClick={bulkDownload} className="bg-blue-600 hover:bg-blue-500 px-3 py-1 text-sm"><FaDownload className="inline mr-2" />Download</Button>
-                <Button onClick={() => setSelected([])} className="bg-gray-600 hover:bg-gray-500 px-3 py-1 text-sm">Clear</Button>
-              </div>
+            <div className="mb-4 p-4 bg-neutral-800 rounded-lg flex items-center gap-4">
+              <strong className="text-white">{selected.length} selected</strong>
+              <Button onClick={bulkDelete} className="bg-red-600 hover:bg-red-500">Delete selected</Button>
+              <Button onClick={bulkDownload} className="bg-blue-600 hover:bg-blue-500"><FaDownload className="inline mr-2" />Download selected</Button>
+              <Button onClick={() => setSelected([])} className="bg-gray-600 hover:bg-gray-500">Clear selection</Button>
             </div>
           )}
 
