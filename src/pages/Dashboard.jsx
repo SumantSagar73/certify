@@ -50,6 +50,8 @@ export default function Dashboard({ session }) {
   const [user, setUser] = useState(session?.user ?? null)
   const [certs, setCerts] = useState([])
   const [loading, setLoading] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const pendingDeleteRef = useRef(null)
   const [showUpload, setShowUpload] = useState(false)
   const [urls, setUrls] = useState({})
   const [selected, setSelected] = useState([])
@@ -57,6 +59,7 @@ export default function Dashboard({ session }) {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [query, setQuery] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterAuthority, setFilterAuthority] = useState('')
   const [filterFromDate, setFilterFromDate] = useState('')
@@ -124,6 +127,15 @@ export default function Dashboard({ session }) {
     })()
   }, [user?.id, page, query, filterCategory, filterAuthority, filterFromDate, filterToDate, lastUploadedId])
 
+  // debounce local search input into query to reduce server requests
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPage(1)
+      setQuery(searchTerm)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+
   // fetch authority suggestions (distinct issuing_authority values for this user)
   useEffect(() => {
     if (!user) return
@@ -179,22 +191,37 @@ export default function Dashboard({ session }) {
   }
 
   async function handleDelete(c) {
-    if (!confirm('Delete this certificate? This will remove both metadata and the stored file.')) return
-    setLoading(true)
-    // delete storage object first
-    try {
-      const { error: storageErr } = await supabase.storage.from('certvault-certificates').remove([c.storage_path])
-      if (storageErr) throw storageErr
-      const { error: delErr } = await supabase.from('certificates').delete().eq('id', c.id)
-      if (delErr) throw delErr
-      // refresh
-      setCerts((cs) => cs.filter((x) => x.id !== c.id))
-    } catch (err) {
-      console.error('delete error', err)
-      alert('Delete failed: ' + (err.message || String(err)))
-    } finally {
-      setLoading(false)
-    }
+    // show undo option for 7s before actual deletion
+    if (!confirm('Delete this certificate? You will have 7 seconds to undo.')) return
+    setPendingDelete(c)
+    // optimistic UI: remove from list immediately
+    setCerts((cs) => cs.filter((x) => x.id !== c.id))
+    const t = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const { error: storageErr } = await supabase.storage.from('certvault-certificates').remove([c.storage_path])
+        if (storageErr) throw storageErr
+        const { error: delErr } = await supabase.from('certificates').delete().eq('id', c.id)
+        if (delErr) throw delErr
+      } catch (err) {
+        console.error('delete error', err)
+        alert('Delete failed: ' + (err.message || String(err)))
+      } finally {
+        setLoading(false)
+        setPendingDelete(null)
+        pendingDeleteRef.current = null
+      }
+    }, 7000)
+    pendingDeleteRef.current = t
+  }
+
+  function undoDelete() {
+    if (!pendingDelete) return
+    // cancel scheduled delete and restore item into list
+    if (pendingDeleteRef.current) clearTimeout(pendingDeleteRef.current)
+    setCerts((cs) => [pendingDelete, ...(cs || [])])
+    setPendingDelete(null)
+    pendingDeleteRef.current = null
   }
 
   function toggleSelect(id) {
@@ -329,7 +356,7 @@ export default function Dashboard({ session }) {
       </div>
 
       {showUpload ? (
-  <Upload onUploaded={(payload) => {
+  <Upload authoritySuggestions={authoritySuggestions} onUploaded={(payload) => {
           setShowUpload(false)
           setPage(1)
           if (!payload) return
@@ -358,7 +385,7 @@ export default function Dashboard({ session }) {
 
           {/* Filters */}
           <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input placeholder="Search title..." value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input placeholder="Search title..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             <input placeholder="Issuing authority" list="auth-list" value={filterAuthority} onChange={(e) => setFilterAuthority(e.target.value)} />
             <datalist id="auth-list">
               {authoritySuggestions.map((a) => <option key={a} value={a} />)}
@@ -377,6 +404,13 @@ export default function Dashboard({ session }) {
             <button onClick={() => { setPage(1) }}>Apply</button>
             <button onClick={() => { setQuery(''); setFilterCategory(''); setFilterAuthority(''); setFilterFromDate(''); setFilterToDate(''); setPage(1) }}>Clear</button>
           </div>
+          {/* Undo snackbar for deletes */}
+          {pendingDelete && (
+            <div style={{ position: 'fixed', left: 24, bottom: 24, background: '#111', padding: 12, borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,0.6)', display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div>Deleted "{pendingDelete.title || pendingDelete.file_name}"</div>
+              <button onClick={undoDelete}>Undo</button>
+            </div>
+          )}
 
           {/* Bulk action toolbar */}
           {selected.length > 0 && (
