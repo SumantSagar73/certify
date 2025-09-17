@@ -17,8 +17,13 @@ function App() {
     return () => listener?.subscription?.unsubscribe()
   }, [])
 
-  if (!session) return <Login />
-  return <Dashboard session={session} />
+  return (
+    <div className="min-h-screen bg-neutral-900 text-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {!session ? <Login /> : <Dashboard session={session} />}
+      </div>
+    </div>
+  )
 }
 
 export default App

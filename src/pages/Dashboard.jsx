@@ -4,9 +4,103 @@ import { supabase } from '../lib/supabaseClient'
 import Upload from './Upload'
 import Header from '../components/Header'
 import Toast from '../components/Toast'
+import Input from '../components/Input'
+import Button from '../components/Button'
+import Card from '../components/Card'
 import { FaDownload } from 'react-icons/fa'
 
 const PAGE_SIZE = 8
+
+// helper: try removing an object from storage with a few common encodings
+async function tryRemoveStoragePath(bucket, path) {
+  const candidates = new Set()
+  if (!path) return false
+  const raw = String(path).trim()
+  candidates.add(raw)
+
+  // try trimming leading slash
+  if (raw.startsWith('/')) candidates.add(raw.replace(/^\//, ''))
+
+  // try removing 'public/' prefix if present
+  if (raw.startsWith('public/')) candidates.add(raw.replace(/^public\//, ''))
+  if (raw.includes('/public/')) candidates.add(raw.split('/public/').pop())
+
+  // if a full URL was stored, try to extract the path after the bucket
+  try {
+    const u = new URL(raw)
+    // attempt to find bucket in pathname
+    const parts = u.pathname.split('/').filter(Boolean)
+    const idx = parts.indexOf(bucket)
+    if (idx >= 0 && parts.length > idx + 0) {
+      const sub = parts.slice(idx + 1).join('/')
+      if (sub) candidates.add(sub)
+      // also try without any leading 'public' segment
+      if (sub.startsWith('public/')) candidates.add(sub.replace(/^public\//, ''))
+    }
+    // also try last two segments (user/file)
+    if (parts.length >= 2) candidates.add(parts.slice(-2).join('/'))
+  // also try extracting after known storage URL patterns
+  const objMatch = raw.match(/\/storage\/v1\/object\/[^/]+\/(.*)$/)
+  if (objMatch && objMatch[1]) candidates.add(objMatch[1])
+  const obj2 = raw.match(/\/object\/([^/]+)\/(.*)$/)
+  if (obj2 && obj2[2]) candidates.add(obj2[2])
+  } catch (e) {
+    // not a URL — ignore parsing error
+    // keep going with other variants
+    void e
+  }
+
+  // encoded/decoded segment variants
+  try {
+    const decoded = decodeURIComponent(raw)
+    if (decoded !== raw) candidates.add(decoded)
+  } catch (e) {
+    // ignore decode errors
+    void e
+  }
+  try {
+    const encoded = raw.split('/').map((s) => encodeURIComponent(s)).join('/')
+    if (encoded !== raw) candidates.add(encoded)
+  } catch (e) {
+    // ignore encode errors
+    void e
+  }
+
+  for (const p of Array.from(candidates)) {
+    if (!p) continue
+    try {
+      const { data, error } = await supabase.storage.from(bucket).remove([p])
+      if (!error) {
+        console.debug('removed storage object', p, data)
+        return true
+      }
+      // continue on not-found
+      if (error && /not found|404/i.test(error.message || '')) {
+        console.debug('not found for path variant', p)
+        continue
+      }
+      console.warn('remove returned error for path variant', p, error)
+    } catch (err) {
+      console.warn('tryRemoveStoragePath attempt failed for', p, err)
+      // continue trying other variants
+    }
+  }
+  // final attempt: if the raw string contains query params or fragments, try stripping
+  try {
+    const clean = raw.split('?')[0].split('#')[0]
+    if (clean && !Array.from(candidates).includes(clean)) {
+      const { data, error } = await supabase.storage.from(bucket).remove([clean])
+      if (!error) {
+        console.debug('removed storage object (cleaned)', clean, data)
+        return true
+      }
+      console.debug('final clean removal attempt failed', clean, error)
+    }
+  } catch (e) {
+    void e
+  }
+  return false
+}
 
 function EditModal({ cert, onClose, onSave }) {
   const [title, setTitle] = useState(cert.title || '')
@@ -18,31 +112,52 @@ function EditModal({ cert, onClose, onSave }) {
   const [isPrivate, setIsPrivate] = useState(cert.is_private ?? true)
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#1a1a1a', padding: 20, width: 560, borderRadius: 8 }}>
-        <h3>Edit certificate</h3>
-  <label style={{ display: 'block', marginTop: 8 }}>Title<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
-        <label style={{ display: 'block', marginTop: 8 }}>Issuing Authority<input value={issuingAuthority} onChange={(e) => setIssuingAuthority(e.target.value)} /></label>
-        <label style={{ display: 'block', marginTop: 8 }}>Category<select value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option>Academic</option>
-          <option>Online Course</option>
-          <option>Competition</option>
-          <option>Workshop</option>
-          <option>Internship</option>
-          <option>Other</option>
-        </select></label>
-        <label style={{ display: 'block', marginTop: 8 }}>Notes<textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
-        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-          <label style={{ fontSize: 12 }}>Issue Date<input type="date" value={issueDate || ''} onChange={(e) => setIssueDate(e.target.value)} /></label>
-          <label style={{ fontSize: 12 }}>Expiry Date<input type="date" value={expiryDate || ''} onChange={(e) => setExpiryDate(e.target.value)} /></label>
-          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} /> Private</label>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-neutral-800 p-6 rounded-lg w-full max-w-lg shadow-xl">
+        <h3 className="text-xl font-semibold mb-4 text-white">Edit certificate</h3>
+        <label className="block mb-3">
+          <span className="text-sm text-gray-300">Title</span>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1" />
+        </label>
+        <label className="block mb-3">
+          <span className="text-sm text-gray-300">Issuing Authority</span>
+          <Input value={issuingAuthority} onChange={(e) => setIssuingAuthority(e.target.value)} className="mt-1" />
+        </label>
+        <label className="block mb-3">
+          <span className="text-sm text-gray-300">Category</span>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-md bg-neutral-700 border border-neutral-600 text-white">
+            <option>Academic</option>
+            <option>Online Course</option>
+            <option>Competition</option>
+            <option>Workshop</option>
+            <option>Internship</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label className="block mb-3">
+          <span className="text-sm text-gray-300">Notes</span>
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full mt-1 p-2 bg-neutral-700 rounded-md text-white" />
+        </label>
+        <div className="flex gap-4 mb-3">
+          <label className="flex-1">
+            <span className="text-sm text-gray-300">Issue Date</span>
+            <Input type="date" value={issueDate || ''} onChange={(e) => setIssueDate(e.target.value)} className="mt-1" />
+          </label>
+          <label className="flex-1">
+            <span className="text-sm text-gray-300">Expiry Date</span>
+            <Input type="date" value={expiryDate || ''} onChange={(e) => setExpiryDate(e.target.value)} className="mt-1" />
+          </label>
         </div>
+        <label className="flex items-center mb-4">
+          <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} className="mr-2" />
+          <span className="text-sm text-gray-300">Private</span>
+        </label>
         {/* simple validation */}
-        {title.trim() === '' && <div style={{ color: 'salmon', marginTop: 8 }}>Title is required</div>}
-        {issueDate && expiryDate && issueDate > expiryDate && <div style={{ color: 'salmon', marginTop: 8 }}>Expiry date must be after issue date</div>}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-          <button onClick={onClose}>Cancel</button>
-          <button disabled={title.trim() === '' || (issueDate && expiryDate && issueDate > expiryDate)} onClick={() => onSave({ title: title.trim(), issuing_authority: issuingAuthority.trim(), category, notes: notes.trim(), issue_date: issueDate || null, expiry_date: expiryDate || null, is_private: isPrivate })}>Save</button>
+        {title.trim() === '' && <div className="text-red-400 mb-3">Title is required</div>}
+        {issueDate && expiryDate && issueDate > expiryDate && <div className="text-red-400 mb-3">Expiry date must be after issue date</div>}
+        <div className="flex gap-3 justify-end">
+          <Button onClick={onClose} className="bg-gray-600 hover:bg-gray-500">Cancel</Button>
+          <Button disabled={title.trim() === '' || (issueDate && expiryDate && issueDate > expiryDate)} onClick={() => onSave({ title: title.trim(), issuing_authority: issuingAuthority.trim(), category, notes: notes.trim(), issue_date: issueDate || null, expiry_date: expiryDate || null, is_private: isPrivate })}>Save</Button>
         </div>
       </div>
     </div>
@@ -199,13 +314,14 @@ export default function Dashboard({ session }) {
     setPendingDelete(c)
     // optimistic UI: remove from list immediately
     setCerts((cs) => cs.filter((x) => x.id !== c.id))
-    const t = setTimeout(async () => {
+  const t = setTimeout(async () => {
       setLoading(true)
       try {
-        const { error: storageErr } = await supabase.storage.from('certvault-certificates').remove([c.storage_path])
-        if (storageErr) throw storageErr
-        const { error: delErr } = await supabase.from('certificates').delete().eq('id', c.id)
-        if (delErr) throw delErr
+    // attempt robust removal (try several encodings)
+    const removed = await tryRemoveStoragePath('certvault-certificates', c.storage_path)
+    if (!removed) throw new Error('Failed to remove storage object for ' + c.storage_path)
+    const { error: delErr } = await supabase.from('certificates').delete().eq('id', c.id)
+    if (delErr) throw delErr
       } catch (err) {
         console.error('delete error', err)
         alert('Delete failed: ' + (err.message || String(err)))
@@ -239,8 +355,18 @@ export default function Dashboard({ session }) {
       // fetch selected certs to get storage paths
       const { data } = await supabase.from('certificates').select('id,storage_path').in('id', selected)
       if (data && data.length > 0) {
-        // remove storage objects one-by-one
-        await Promise.all(data.map((d) => supabase.storage.from('certvault-certificates').remove([d.storage_path])))
+        // remove storage objects one-by-one using robust remover
+        const failed = []
+        await Promise.all(data.map(async (d) => {
+          try {
+            const ok = await tryRemoveStoragePath('certvault-certificates', d.storage_path)
+            if (!ok) failed.push(d.storage_path)
+          } catch (err) {
+            console.warn('bulk remove attempt failed for', d.storage_path, err)
+            failed.push(d.storage_path)
+          }
+        }))
+        if (failed.length) throw new Error('Failed to remove some storage objects: ' + failed.join(', '))
       }
       // remove metadata rows
       const { error } = await supabase.from('certificates').delete().in('id', selected)
@@ -348,127 +474,143 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="p-6">
-      <Header userEmail={user?.email} onUploadToggle={() => setShowUpload((s) => !s)} onSignOut={signOut} showUpload={showUpload} />
+    <div className="min-h-screen bg-neutral-900 text-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <Header userEmail={user?.email} onUploadToggle={() => setShowUpload((s) => !s)} onSignOut={signOut} showUpload={showUpload} />
 
-    {showUpload ? (
-  <Upload authoritySuggestions={authoritySuggestions} onUploaded={(payload) => {
-          setShowUpload(false)
-          setPage(1)
-          if (!payload) return
-          const { created, signedUrl, error } = payload
-          if (error) {
-            // remove any temp item (if present) and show message
-            setCerts((cs) => (cs || []).filter((c) => !c.id?.toString().startsWith('temp-')))
-            setTotal((t) => Math.max(0, (t || 1) - 1))
-            alert('Upload failed: ' + (error.message || String(error)))
-            return
-          }
-          if (created) {
-            lastUploadedRef.current = created
-            setLastUploadedId(created.id)
-            setCerts((cs) => [created, ...(cs || [])])
-            if (signedUrl) setUrls((u) => ({ ...u, [created.id]: signedUrl }))
-            // verify on the server and ensure it's merged (retry if necessary)
-            verifyCreated(created.id).then(() => {}).catch(() => {})
-          }
-        }} />
-      ) : (
-        <section style={{ marginTop: 32 }}>
-          <h3>Your certificates</h3>
-          {loading && <p>Loading...</p>}
-          {!loading && certs.length === 0 && <p style={{ color: '#9aa' }}>No certificates yet. Use Upload to add PDF or images.</p>}
+        {showUpload ? (
+          <Upload authoritySuggestions={authoritySuggestions} onUploaded={(payload) => {
+            setShowUpload(false)
+            setPage(1)
+            if (!payload) return
+            const { created, signedUrl, error } = payload
+            if (error) {
+              // remove any temp item (if present) and show message
+              setCerts((cs) => (cs || []).filter((c) => !c.id?.toString().startsWith('temp-')))
+              setTotal((t) => Math.max(0, (t || 1) - 1))
+              alert('Upload failed: ' + (error.message || String(error)))
+              return
+            }
+            if (created) {
+              lastUploadedRef.current = created
+              setLastUploadedId(created.id)
+              setCerts((cs) => [created, ...(cs || [])])
+              if (signedUrl) setUrls((u) => ({ ...u, [created.id]: signedUrl }))
+              // verify on the server and ensure it's merged (retry if necessary)
+              verifyCreated(created.id).then(() => {}).catch(() => {})
+            }
+          }} />
+        ) : (
+          <section className="mt-8">
+            <h3 className="text-2xl font-semibold mb-4">Your certificates</h3>
+            {loading && <p className="text-gray-400">Loading...</p>}
+            {!loading && certs.length === 0 && <p className="text-gray-400">No certificates yet. Use Upload to add PDF or images.</p>}
 
-          {/* Filters */}
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input placeholder="Search title..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            <input placeholder="Issuing authority" list="auth-list" value={filterAuthority} onChange={(e) => setFilterAuthority(e.target.value)} />
-            <datalist id="auth-list">
-              {authoritySuggestions.map((a) => <option key={a} value={a} />)}
-            </datalist>
-            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-              <option value="">All categories</option>
-              <option value="Academic">Academic</option>
-              <option value="Online Course">Online Course</option>
-              <option value="Competition">Competition</option>
-              <option value="Workshop">Workshop</option>
-              <option value="Internship">Internship</option>
-              <option value="Other">Other</option>
-            </select>
-            <label style={{ fontSize: 12 }}>From<input type="date" value={filterFromDate} onChange={(e) => setFilterFromDate(e.target.value)} /></label>
-            <label style={{ fontSize: 12 }}>To<input type="date" value={filterToDate} onChange={(e) => setFilterToDate(e.target.value)} /></label>
-            <button onClick={() => { setPage(1) }}>Apply</button>
-            <button onClick={() => { setQuery(''); setFilterCategory(''); setFilterAuthority(''); setFilterFromDate(''); setFilterToDate(''); setPage(1) }}>Clear</button>
+            {/* Filters */}
+            <div className="mb-6 flex flex-wrap gap-4 items-end">
+              <div className="flex-1 min-w-64">
+                <label className="block text-sm text-gray-300 mb-1">Search title</label>
+                <Input placeholder="Search title..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              </div>
+              <div className="flex-1 min-w-64">
+                <label className="block text-sm text-gray-300 mb-1">Issuing authority</label>
+                <Input placeholder="Issuing authority" list="auth-list" value={filterAuthority} onChange={(e) => setFilterAuthority(e.target.value)} />
+                <datalist id="auth-list">
+                  {authoritySuggestions.map((a) => <option key={a} value={a} />)}
+                </datalist>
+              </div>
+              <div className="min-w-48">
+                <label className="block text-sm text-gray-300 mb-1">Category</label>
+              <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full px-3 py-2 rounded-md bg-neutral-700 border border-neutral-600 text-white">
+                <option value="">All categories</option>
+                <option value="Academic">Academic</option>
+                <option value="Online Course">Online Course</option>
+                <option value="Competition">Competition</option>
+                <option value="Workshop">Workshop</option>
+                <option value="Internship">Internship</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="min-w-32">
+              <label className="block text-sm text-gray-300 mb-1">From</label>
+              <Input type="date" value={filterFromDate} onChange={(e) => setFilterFromDate(e.target.value)} />
+            </div>
+            <div className="min-w-32">
+              <label className="block text-sm text-gray-300 mb-1">To</label>
+              <Input type="date" value={filterToDate} onChange={(e) => setFilterToDate(e.target.value)} />
+            </div>
+            <Button onClick={() => { setPage(1) }}>Apply</Button>
+            <Button onClick={() => { setQuery(''); setFilterCategory(''); setFilterAuthority(''); setFilterFromDate(''); setFilterToDate(''); setPage(1) }} className="bg-gray-600 hover:bg-gray-500">Clear</Button>
           </div>
           {/* Undo snackbar for deletes */}
           {pendingDelete && (
-            <div style={{ position: 'fixed', left: 24, bottom: 24, background: '#111', padding: 12, borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,0.6)', display: 'flex', gap: 12, alignItems: 'center' }}>
-              <div>Deleted "{pendingDelete.title || pendingDelete.file_name}"</div>
-              <button onClick={undoDelete}>Undo</button>
-            </div>
+            <Toast message={`Deleted "${pendingDelete.title || pendingDelete.file_name}"`} actionLabel="Undo" onAction={undoDelete} />
           )}
 
           {/* Bulk action toolbar */}
           {selected.length > 0 && (
-            <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <strong>{selected.length} selected</strong>
-              <button onClick={bulkDelete}>Delete selected</button>
-              <button onClick={bulkDownload}>Download selected</button>
-              <button onClick={() => setSelected([])}>Clear selection</button>
+            <div className="mb-4 p-3 bg-neutral-800 rounded-lg flex items-center gap-3 flex-wrap">
+              <strong className="text-white mr-2">{selected.length} selected</strong>
+              <div className="flex gap-2">
+                <Button onClick={bulkDelete} className="bg-red-600 hover:bg-red-500 px-3 py-1 text-sm">Delete</Button>
+                <Button onClick={bulkDownload} className="bg-blue-600 hover:bg-blue-500 px-3 py-1 text-sm"><FaDownload className="inline mr-2" />Download</Button>
+                <Button onClick={() => setSelected([])} className="bg-gray-600 hover:bg-gray-500 px-3 py-1 text-sm">Clear</Button>
+              </div>
             </div>
           )}
 
-          <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {certs.map((c) => (
-              <li key={c.id} style={{ padding: 8, borderBottom: '1px solid #2a2a2a', display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div style={{ width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+              <Card key={c.id} className="p-4">
+                <div className="flex items-start gap-4">
+                  <div className="flex items-center">
+                    <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} className="mr-2" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="w-full h-32 bg-neutral-700 rounded-md flex items-center justify-center mb-3">
+                      {urls[c.id] ? (
+                        c.mime_type?.startsWith('image') ? (
+                          <img src={urls[c.id]} alt={c.file_name} className="w-full h-full object-cover rounded-md" />
+                        ) : (
+                          <a href={urls[c.id]} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300">Download</a>
+                        )
+                      ) : (
+                        <Button onClick={async () => await generateUrlForCert(c)} className="text-sm">Preview</Button>
+                      )}
+                    </div>
+                    <h4 className="font-semibold text-lg mb-1">{c.title || c.file_name}</h4>
+                    <p className="text-gray-400 text-sm mb-1">{c.issuing_authority} • {c.category}</p>
+                    <p className="text-gray-500 text-xs">{c.issue_date}</p>
+                    <div className="mt-3 flex gap-2">
+                      {urls[c.id] ? (
+                        <Button onClick={() => window.open(urls[c.id], '_blank')} className="text-sm">Open</Button>
+                      ) : (
+                        <Button onClick={async () => await generateUrlForCert(c)} className="text-sm">Get URL</Button>
+                      )}
+                      <Button onClick={() => setEditing(c)} className="text-sm bg-yellow-600 hover:bg-yellow-500">Edit</Button>
+                      <Button onClick={() => handleDelete(c)} className="text-sm bg-red-600 hover:bg-red-500">Delete</Button>
+                    </div>
+                  </div>
                 </div>
-
-                <div style={{ width: 88, height: 64, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {urls[c.id] ? (
-                    c.mime_type?.startsWith('image') ? (
-                      <img src={urls[c.id]} alt={c.file_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <a href={urls[c.id]} target="_blank" rel="noreferrer">Download</a>
-                    )
-                  ) : (
-                    <button onClick={async () => await generateUrlForCert(c)}>Preview</button>
-                  )}
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <strong>{c.title || c.file_name}</strong>
-                  <div style={{ fontSize: 12, color: '#9aa' }}>{c.issuing_authority} • {c.category} • {c.issue_date}</div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {urls[c.id] ? (
-                    <a href={urls[c.id]} target="_blank" rel="noreferrer">Open</a>
-                  ) : (
-                    <button onClick={async () => await generateUrlForCert(c)}>Get URL</button>
-                  )}
-                  <button onClick={() => setEditing(c)}>Edit</button>
-                  <button onClick={() => handleDelete(c)}>Delete</button>
-                </div>
-              </li>
+              </Card>
             ))}
-          </ul>
+          </div>
 
-          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+          <div className="mt-6 flex justify-between items-center">
+            <div className="text-gray-400">
               Showing {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, total)} of {total}
-              <span style={{ marginLeft: 12 }}>{selected.length > 0 ? `${selected.length} selected` : ''}</span>
+              {selected.length > 0 && <span className="ml-4 text-white">{selected.length} selected</span>}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
-              <button onClick={() => setPage((p) => p + 1)} disabled={page * PAGE_SIZE >= total}>Next</button>
+            <div className="flex gap-2">
+              <Button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="bg-gray-600 hover:bg-gray-500">Prev</Button>
+              <Button onClick={() => setPage((p) => p + 1)} disabled={page * PAGE_SIZE >= total} className="bg-gray-600 hover:bg-gray-500">Next</Button>
             </div>
           </div>
         </section>
       )}
 
       {editing && <EditModal cert={editing} onClose={() => setEditing(null)} onSave={(updates) => { handleEdit(editing, updates); setEditing(null) }} />}
+      </div>
     </div>
   )
 }
