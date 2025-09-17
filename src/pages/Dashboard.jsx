@@ -93,6 +93,7 @@ export default function Dashboard({ session }) {
   const [filterToDate, setFilterToDate] = useState('')
   const [editing, setEditing] = useState(null)
   const [authoritySuggestions, setAuthoritySuggestions] = useState([])
+  const [toast, setToast] = useState(null)
   const lastUploadedRef = useRef(null)
   const [lastUploadedId, setLastUploadedId] = useState(null)
   // no optimistic pending state; Upload shows spinner instead
@@ -104,14 +105,14 @@ export default function Dashboard({ session }) {
   async function generateUrlForCert(c) {
     try {
       // Try public URL first
-      const { data: publicData } = supabase.storage.from('certvault-certificates').getPublicUrl(c.storage_path)
+  const { data: publicData } = supabase.storage.from('certify-certificates').getPublicUrl(c.storage_path)
       if (publicData?.publicUrl) {
         setUrls((u) => ({ ...u, [c.id]: publicData.publicUrl }))
         return
       }
 
       // fallback to signed URL (1 hour)
-      const { data, error } = await supabase.storage.from('certvault-certificates').createSignedUrl(c.storage_path, 3600)
+  const { data, error } = await supabase.storage.from('certify-certificates').createSignedUrl(c.storage_path, 3600)
       if (error) throw error
       setUrls((u) => ({ ...u, [c.id]: data.signedUrl }))
     } catch (err) {
@@ -120,7 +121,7 @@ export default function Dashboard({ session }) {
   }
 
   useEffect(() => {
-    if (!user?.id) return
+  if (!user?.id) return
     setLoading(true)
     ;(async () => {
       const from = (page - 1) * PAGE_SIZE
@@ -153,6 +154,13 @@ export default function Dashboard({ session }) {
       setLoading(false)
     })()
   }, [user?.id, page, query, filterCategory, filterAuthority, filterFromDate, filterToDate, lastUploadedId])
+
+  // auto-dismiss toast after a few seconds
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 5000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   // debounce local search input into query to reduce server requests
   useEffect(() => {
@@ -232,7 +240,7 @@ export default function Dashboard({ session }) {
       // set pendingDelete so user can undo within window
       setPendingDelete(deletedRow || c)
       // attempt to remove storage (best-effort)
-      const { error: storageErr } = await supabase.storage.from('certvault-certificates').remove([c.storage_path])
+  const { error: storageErr } = await supabase.storage.from('certify-certificates').remove([c.storage_path])
       if (storageErr) console.warn('storage remove error', storageErr)
 
       // schedule clearing the undo window
@@ -243,7 +251,7 @@ export default function Dashboard({ session }) {
       pendingDeleteRef.current = t
     } catch (err) {
       console.error('delete error', err)
-      alert('Delete failed: ' + (err.message || String(err)))
+      setToast({ message: 'Delete failed: ' + (err.message || String(err)) })
     } finally {
       setLoading(false)
     }
@@ -267,7 +275,7 @@ export default function Dashboard({ session }) {
         setTotal((t) => (typeof t === 'number' ? t + 1 : 1))
       } catch (err) {
         console.error('undo insert failed', err)
-        alert('Failed to undo delete: ' + (err.message || String(err)))
+        setToast({ message: 'Failed to undo delete: ' + (err.message || String(err)) })
       } finally {
         setLoading(false)
         setPendingDelete(null)
@@ -289,7 +297,7 @@ export default function Dashboard({ session }) {
       const { data } = await supabase.from('certificates').select('id,storage_path').in('id', selected)
       if (data && data.length > 0) {
         // remove storage objects one-by-one
-        await Promise.all(data.map((d) => supabase.storage.from('certvault-certificates').remove([d.storage_path])))
+  await Promise.all(data.map((d) => supabase.storage.from('certify-certificates').remove([d.storage_path])))
       }
       // remove metadata rows
       const { error } = await supabase.from('certificates').delete().in('id', selected)
@@ -299,7 +307,7 @@ export default function Dashboard({ session }) {
       setSelected([])
     } catch (err) {
       console.error('bulk delete error', err)
-      alert('Bulk delete failed: ' + (err.message || String(err)))
+      setToast({ message: 'Bulk delete failed: ' + (err.message || String(err)) })
     } finally {
       setLoading(false)
     }
@@ -317,10 +325,10 @@ export default function Dashboard({ session }) {
       for (const c of data) {
         try {
           // try public URL first
-          const { data: publicData } = supabase.storage.from('certvault-certificates').getPublicUrl(c.storage_path)
+          const { data: publicData } = supabase.storage.from('certify-certificates').getPublicUrl(c.storage_path)
           let fileUrl = publicData?.publicUrl
           if (!fileUrl) {
-            const { data: signed, error } = await supabase.storage.from('certvault-certificates').createSignedUrl(c.storage_path, 3600)
+            const { data: signed, error } = await supabase.storage.from('certify-certificates').createSignedUrl(c.storage_path, 3600)
             if (error) throw error
             fileUrl = signed.signedUrl
           }
@@ -336,7 +344,7 @@ export default function Dashboard({ session }) {
       }
 
       if (included === 0) {
-        alert('No files could be fetched for download. Check bucket permissions or file paths.')
+        setToast({ message: 'No files could be fetched for download. Check bucket permissions or file paths.' })
         return
       }
 
@@ -352,7 +360,7 @@ export default function Dashboard({ session }) {
       URL.revokeObjectURL(url)
     } catch (err) {
       console.error('bulk download error', err)
-      alert('Bulk download failed: ' + (err.message || String(err)))
+  setToast({ message: 'Bulk download failed: ' + (err.message || String(err)) })
     } finally {
       setLoading(false)
     }
@@ -367,7 +375,7 @@ export default function Dashboard({ session }) {
       setCerts((cs) => cs.map((x) => (x.id === c.id ? { ...x, ...updates } : x)))
     } catch (err) {
       console.error('edit error', err)
-      alert('Update failed: ' + (err.message || String(err)))
+  setToast({ message: 'Update failed: ' + (err.message || String(err)) })
     } finally {
       setLoading(false)
     }
@@ -411,7 +419,7 @@ export default function Dashboard({ session }) {
               // remove any temp item (if present) and show message
               setCerts((cs) => (cs || []).filter((c) => !c.id?.toString().startsWith('temp-')))
               setTotal((t) => Math.max(0, (t || 1) - 1))
-              alert('Upload failed: ' + (error.message || String(error)))
+              setToast({ message: 'Upload failed: ' + (error.message || String(error)) })
               return
             }
             if (created) {
@@ -468,6 +476,11 @@ export default function Dashboard({ session }) {
           {/* Undo snackbar for deletes */}
           {pendingDelete && (
             <Toast message={`Deleted "${pendingDelete.title || pendingDelete.file_name}"`} actionLabel="Undo" onAction={undoDelete} />
+          )}
+
+          {/* toast messages */}
+          {toast && (
+            <Toast message={toast.message} actionLabel={toast.actionLabel} onAction={toast.onAction} />
           )}
 
           {/* Bulk action toolbar */}

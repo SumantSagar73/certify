@@ -1,41 +1,69 @@
-# React + Vite
+# Certify
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Certify is a small, secure certificate manager built with React and Vite and backed by Supabase (Auth, Storage, Postgres). It helps users store, organize, and export their certificates (PDFs or images) with a simple, responsive UI.
 
-Currently, two official plugins are available:
+Features
+- Email magic-link and Google sign-in (Supabase Auth)
+- Upload certificates (PDF or images) with metadata: title, issuing authority, category, issue & expiry dates, notes
+- Preview and download certificates (signed URLs or public URLs)
+- Organize and search: full-text title search, filter by category or issuing authority, date range filters
+- Bulk download (client-side ZIP) and bulk delete
+- Delete with undo window (7s) to recover accidental deletions
+- Responsive UI using Tailwind CSS and accessible components
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-
-## CertVault - Phase 1 (Supabase auth)
-
-Quick start for Phase 1 (local development):
-
-1. Create a Supabase project at https://app.supabase.com and enable Email and Google providers under Authentication -> Providers.
-2. Create a `.env` file from `.env.example` and fill `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-3. Run the dev server:
+Quick start (local)
+1. Install dependencies:
 
 ```powershell
 npm install
+```
+
+2. Provide Supabase credentials via environment variables. Create a `.env` file in the project root with:
+
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+3. Run the dev server:
+
+```powershell
 npm run dev
 ```
 
-The app includes a minimal login screen (magic link + Google) and a placeholder dashboard.
+4. Open the app at the Vite dev URL (e.g. http://localhost:5173 or the port shown by Vite).
 
-Next steps: wire Supabase Storage and add upload UI (Phase 2).
-# React + Vite
+Supabase setup notes
+- Create a Supabase project and enable Email and Google providers in Authentication → Providers.
+- Create a Postgres table named `certificates` with appropriate columns (example minimal schema):
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+	- id: uuid (primary key, default gen_random_uuid())
+	- user_id: uuid (references auth.users)
+	- file_name: text
+	- storage_path: text
+	- mime_type: text
+	- title: text
+	- issuing_authority: text
+	- category: text
+	- issue_date: date
+	- expiry_date: date
+	- notes: text
+	- is_private: boolean
+	- created_at: timestamptz (default now())
 
-Currently, two official plugins are available:
+- Create a Storage bucket (used in the app as `certify-certificates`) and ensure your RLS and policies allow authenticated users to insert/read/delete their own rows and storage objects as needed.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Deployment notes
+- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in your hosting provider (Vercel, Netlify) environment variables.
+- Add your production URL as a Redirect URL in Supabase Auth settings and OAuth provider consoles (Google) so magic links and OAuth redirects work.
+- Ensure you clear tokens from URL fragments — the app already parses and clears auth tokens from the URL when the redirect completes.
 
-## Expanding the ESLint configuration
+Security and maintenance
+- Do not commit your `VITE_SUPABASE_ANON_KEY` to source control. Rotate keys if they are accidentally exposed.
+- Consider implementing server-side backups or lifecycle rules for storage to manage costs and retention.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Contributing
+- This project is intended as a small demo / starter. Feel free to open issues or submit PRs for enhancements (categories persistence, export endpoints, soft-delete, ACL improvements).
+
+License
+- MIT

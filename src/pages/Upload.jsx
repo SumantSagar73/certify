@@ -36,7 +36,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
         const uid = userData?.user?.id
         if (uid) {
           setUserId(uid)
-          const key = `certvault:categories:${uid}`
+          const key = `certify:categories:${uid}`
           const prev = JSON.parse(localStorage.getItem(key) || '[]')
           if (prev && prev.length) setCategories((c) => Array.from(new Set([...(c || []), ...prev])))
         }
@@ -78,7 +78,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
       // perform upload via XHR to get progress events
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData?.session?.access_token
-      const bucket = 'certvault-certificates'
+  const bucket = 'certify-certificates'
       const base = import.meta.env.VITE_SUPABASE_URL
   // encode path but keep slashes for storage path
   const encodedPath = path.split('/').map((p) => encodeURIComponent(p)).join('/')
@@ -149,7 +149,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
   // try to generate a signed url so the dashboard can show the file immediately
       let signedUrl = null
       try {
-        const { data: signed } = await supabase.storage.from('certvault-certificates').createSignedUrl(path, 3600)
+  const { data: signed } = await supabase.storage.from('certify-certificates').createSignedUrl(path, 3600)
         signedUrl = signed?.signedUrl ?? null
       } catch {
         // ignore signed url errors
@@ -177,7 +177,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
   // persist the custom category for this user locally so it's available next time
   try {
     if (created && userId && category === 'Other' && customCategory && customCategory.trim()) {
-      const key = `certvault:categories:${userId}`
+  const key = `certify:categories:${userId}`
       const prev = JSON.parse(localStorage.getItem(key) || '[]')
       const merged = Array.from(new Set([...(prev || []), customCategory.trim()]))
       localStorage.setItem(key, JSON.stringify(merged))

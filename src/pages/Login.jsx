@@ -29,7 +29,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-neutral-900 px-4">
       <Card className="w-full max-w-md">
         <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold text-white mb-2">Welcome to CertVault</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">Welcome to Certify</h2>
           <p className="text-gray-400">Sign in to manage your certificates</p>
         </div>
 
