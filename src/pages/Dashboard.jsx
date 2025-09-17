@@ -138,6 +138,40 @@ export default function Dashboard({ session }) {
     })()
   }, [user])
 
+  // Realtime subscription: listen for inserts/updates/deletes on certificates and update list
+  useEffect(() => {
+    if (!user?.id) return
+
+    const channel = supabase.channel('public:certificates')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'certificates' }, (payload) => {
+        const newRow = payload.new
+        if (!newRow || newRow.user_id !== user.id) return
+        setCerts((cs) => {
+          // avoid duplicate
+          if ((cs || []).some((c) => c.id === newRow.id)) return cs
+          return [newRow, ...(cs || [])]
+        })
+        setTotal((t) => (typeof t === 'number' ? t + 1 : 1))
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'certificates' }, (payload) => {
+        const updated = payload.new
+        if (!updated || updated.user_id !== user.id) return
+        setCerts((cs) => (cs || []).map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'certificates' }, (payload) => {
+        const old = payload.old
+        if (!old || old.user_id !== user.id) return
+        setCerts((cs) => (cs || []).filter((c) => c.id !== old.id))
+        setTotal((t) => Math.max(0, (t || 1) - 1))
+      })
+      .subscribe()
+
+    return () => {
+      // unsubscribe and remove channel
+      try { channel.unsubscribe() } catch { /* ignore */ }
+    }
+  }, [user?.id])
+
   // fetch logic is executed in useEffect to avoid stale dependencies
 
   async function signOut() {
@@ -275,7 +309,7 @@ export default function Dashboard({ session }) {
           })
           return data
         }
-      } catch (e) {
+      } catch {
         // ignore and retry
       }
       await new Promise((r) => setTimeout(r, delayMs))
@@ -295,8 +329,7 @@ export default function Dashboard({ session }) {
       </div>
 
       {showUpload ? (
-        <Upload onUploaded={(payload) => {
-          console.debug('[Dashboard] onUploaded payload', payload)
+  <Upload onUploaded={(payload) => {
           setShowUpload(false)
           setPage(1)
           if (!payload) return
@@ -313,6 +346,8 @@ export default function Dashboard({ session }) {
             setLastUploadedId(created.id)
             setCerts((cs) => [created, ...(cs || [])])
             if (signedUrl) setUrls((u) => ({ ...u, [created.id]: signedUrl }))
+            // verify on the server and ensure it's merged (retry if necessary)
+            verifyCreated(created.id).then(() => {}).catch(() => {})
           }
         }} />
       ) : (

@@ -86,8 +86,7 @@ export default function Upload({ onUploaded }) {
 
     // pass the newly created record info to the parent so it can display
   const created = (_data && _data[0]) ? _data[0] : null
-  // debug: log payload sent to parent
-  console.debug('[Upload] onUploaded payload', { created, signedUrl })
+  // notify parent component; Dashboard handles merging via realtime or verifyCreated
   onUploaded && onUploaded({ created, signedUrl })
     } catch (err) {
   setMessage(err.message || String(err))
