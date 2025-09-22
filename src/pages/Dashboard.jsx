@@ -42,9 +42,6 @@ function EditModal({ cert, onClose, onSave }) {
             <option>Internship</option>
             <option>Other</option>
           </select>
-        </label>
-        <label className="block mb-3">
-          <span className="text-sm text-text-secondary">Notes</span>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full mt-1 p-2 bg-input rounded-md text-text-primary border border-secondary" />
         </label>
         <div className="flex gap-4 mb-3">
@@ -481,33 +478,50 @@ export default function Dashboard({ session }) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {certs.map((c) => (
               <Card key={c.id} className="p-4 bg-card rounded-lg shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 animate-slide-in card-shine">
-                <div className="flex items-start gap-4">
-                  <div className="flex items-center">
-                    <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} className="mr-3 w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="w-full h-32 bg-input rounded-md flex items-center justify-center mb-3">
-                      {urls[c.id] ? (
-                        c.mime_type?.startsWith('image') ? (
-                          <img src={urls[c.id]} alt={c.file_name} className="w-full h-full object-cover rounded-md" />
+                <div className="relative">
+                  {/* circular badge top-right */}
+                  <button
+                    type="button"
+                    onClick={() => toggleSelect(c.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(c.id) } }}
+                    aria-pressed={selected.includes(c.id)}
+                    aria-label={selected.includes(c.id) ? 'Unselect certificate' : 'Select certificate'}
+                    className={`select-badge ${selected.includes(c.id) ? 'selected' : ''}`}
+                  >
+                    {selected.includes(c.id) ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /></svg>
+                    )}
+                  </button>
+
+                  <div className="flex items-start gap-4">
+                    <div className="flex-1">
+                      <div className="w-full h-32 bg-input rounded-md flex items-center justify-center mb-3">
+                        {urls[c.id] ? (
+                          c.mime_type?.startsWith('image') ? (
+                            <img src={urls[c.id]} alt={c.file_name} className="w-full h-full object-cover rounded-md" />
+                          ) : (
+                            <a href={urls[c.id]} target="_blank" rel="noreferrer" className="text-accent hover:text-primary transition-colors duration-300">Download</a>
+                          )
                         ) : (
-                          <a href={urls[c.id]} target="_blank" rel="noreferrer" className="text-accent hover:text-primary transition-colors duration-300">Download</a>
-                        )
-                      ) : (
-                        <Button variant="secondary" onClick={async () => await generateUrlForCert(c)} className="text-sm">Preview</Button>
-                      )}
-                    </div>
-                    <h4 className="font-semibold text-lg mb-1 text-text-primary">{c.title || c.file_name}</h4>
-                    <p className="text-text-secondary text-sm mb-1">{c.issuing_authority} • {c.category}</p>
-                    <p className="text-secondary text-xs">{c.issue_date}</p>
-                    <div className="mt-3 flex gap-2">
-                      {urls[c.id] ? (
-                        <Button variant="secondary" onClick={() => window.open(urls[c.id], '_blank')} className="text-sm">Open</Button>
-                      ) : (
-                        <Button variant="secondary" onClick={async () => await generateUrlForCert(c)} className="text-sm">Get URL</Button>
-                      )}
-                      <Button variant="warning" onClick={() => setEditing(c)} className="text-sm">Edit</Button>
-                      <Button variant="danger" onClick={() => handleDelete(c)} className="text-sm">Delete</Button>
+                          <Button variant="secondary" onClick={async () => await generateUrlForCert(c)} className="text-sm">Preview</Button>
+                        )}
+                      </div>
+
+                      <h4 className="font-semibold text-lg mb-1 text-text-primary">{c.title || c.file_name}</h4>
+                      <p className="text-text-secondary text-sm mb-1">{c.issuing_authority} • {c.category}</p>
+                      <p className="text-secondary text-xs">{c.issue_date}</p>
+
+                      <div className="mt-3 flex gap-2">
+                        {urls[c.id] ? (
+                          <Button variant="secondary" onClick={() => window.open(urls[c.id], '_blank')} className="text-sm">Open</Button>
+                        ) : (
+                          <Button variant="secondary" onClick={async () => await generateUrlForCert(c)} className="text-sm">Get URL</Button>
+                        )}
+                        <Button variant="warning" onClick={() => setEditing(c)} className="text-sm">Edit</Button>
+                        <Button variant="danger" onClick={() => handleDelete(c)} className="text-sm">Delete</Button>
+                      </div>
                     </div>
                   </div>
                 </div>
