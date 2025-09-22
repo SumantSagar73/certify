@@ -11,6 +11,21 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Warm Minimalist & Cozy palette (light theme refined) */
+  --bg-page: #FFFFFF;        /* clean bright white */
+  --text-primary: #1E1E1E;   /* strong dark gray */
+  --text-secondary: #4D4D4D; /* softer gray for secondary text */
+  --surface: #F5F5F5;        /* card/light surface */
+  --input-bg: #FFFFFF;
+  --accent-warm: #D98E5F;    /* warm terracotta */
+  --accent-cool: #6CA9A9;    /* teal balance */
+  --primary-1: #D98E5F;
+  --primary-2: #6CA9A9;
+  --primary: linear-gradient(90deg, var(--primary-1), var(--primary-2));
+  --primary-solid: #D98E5F;
+  --danger: #DC2626;
+  --border: rgba(0,0,0,0.08);
 }
 
 @tailwind base;
@@ -19,18 +34,39 @@
 
 a {
   font-weight: 500;
-  color: #646cff;
+  color: var(--accent-cool);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: var(--accent-warm);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background-color: var(--bg, #121212);
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark theme overrides */
+.dark {
+  /* Dark variant: rich & cozy */
+  --bg-page: #121212;        /* deep charcoal */
+  --text-primary: #EAEAEA;   /* soft white */
+  --text-secondary: #A0A0A0; /* muted gray */
+  --surface: #1E1E1E;        /* card dark */
+  --input-bg: #181818;
+  --accent-warm: #C7764F;    /* deeper terracotta */
+  --accent-cool: #5E9E9E;    /* muted teal */
+    --primary-1: #B8653A; /* darker terracotta for better contrast */
+  --primary-2: #7A9B9B; /* darker seafoam for better contrast */
+  --primary: linear-gradient(90deg, var(--primary-1), var(--primary-2));
+  --primary-solid: #C7764F;
+  --danger: #F87171;
+  --border: rgba(255,255,255,0.06);
+  --bg-card: var(--surface);
 }
 
 h1 {
@@ -40,32 +76,202 @@ h1 {
 
 button {
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   padding: 0.6em 1.2em;
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: all 0.3s ease;
 }
+/* Don't apply gradient to all buttons via background-color (invalid); restrict gradient to .btn-primary only.
+   Ensure hovered button text remains white for readable contrast. */
 button:hover {
-  border-color: #646cff;
+  border-color: var(--primary-1);
+  color: var(--text-primary);
 }
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
+/* Primary gradient helper for buttons */
+.btn-primary {
+  /* Use background-image for gradient and a solid fallback for older browsers */
+  background-image: var(--primary);
+  background-color: var(--primary-solid);
+  color: #fff !important; /* force white text for contrast */
+  border: none;
+}
+.btn-primary:hover {
+  box-shadow: 0 8px 26px rgba(0,0,0,0.12);
+  transform: translateY(-1px);
+  color: #fff !important; /* ensure hover text stays white */
+}
+
+/* token for card background so Tailwind/JSX can use bg-card */
+.bg-card, .bg-card-use {
+  background-color: var(--surface);
+}
+
+/* General button system: use theme tokens so all buttons look consistent */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6em 1.2em;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  background-color: var(--surface);
+  color: var(--text-primary);
+}
+
+.btn-primary {
+  background-image: var(--primary);
+  /* solid fallback for environments that don't render gradients consistently */
+  background-color: var(--primary-solid);
+  color: #fff;
+  border: none;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(0,0,0,0.12); color: #fff; }
+.btn-primary:disabled, .btn-primary[disabled] { opacity: 0.6; cursor: not-allowed; filter: grayscale(0.05); }
+
+.btn-secondary { background-color: var(--surface); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-secondary:hover { background-color: color-mix(in srgb, var(--surface) 90%, var(--primary-solid) 10%); }
+
+.btn-danger { background-color: var(--danger); color: #fff; border: none; }
+.btn-danger:hover { filter: brightness(0.95); }
+
+.btn-warning { background-color: var(--accent-warm); color: #fff; border: none; }
+.btn-warning:hover { filter: brightness(0.95); }
+
+.btn-muted { background-color: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+.btn-muted:hover { background-color: color-mix(in srgb, var(--surface) 90%, black 5%); }
+
+.btn-ghost { background-color: transparent; color: var(--text-primary); border: none; }
+.btn-ghost:hover { background-color: color-mix(in srgb, var(--surface) 92%, black 4%); }
+
+/* ThemeSwitcher specific tokenized border when using ghost variant */
+.theme-switcher-border {
+  /* stronger border for visibility in both light and dark themes */
+  border: 1px solid color-mix(in srgb, var(--primary-solid) 30%, var(--border) 70%);
+  background-clip: padding-box;
+}
+.theme-switcher-border:focus,
+.theme-switcher-border:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-solid) 35%, transparent 65%);
+  outline-offset: 2px;
+}
+
+/* Shine animation for cards on hover: a single sweep gradient that fades out */
+.card-shine {
+  position: relative;
+  overflow: hidden;
+}
+.card-shine::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -75%;
+  height: 200%;
+  width: 50%;
+  background: linear-gradient(120deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%);
+  transform: skewX(-20deg) translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+/* Trigger the shine animation on every hover using :hover so it repeats reliably */
+.card-shine:hover::after {
+  animation: cardShine 900ms ease-in-out forwards;
+}
+@keyframes cardShine {
+  0% { transform: skewX(-20deg) translateX(-100%); opacity: 0 }
+  40% { opacity: 1 }
+  100% { transform: skewX(-20deg) translateX(220%); opacity: 0 }
+}
+
+/* ensure inputs/selects can use bg-input variable */
+.bg-input { background-color: var(--input-bg); }
+
+/* Keep the native calendar picker indicator and tint it for dark/light themes.
+   Previously we removed native appearance and injected SVG backgrounds. The
+   user prefers the native icon; restore native appearance and use vendor
+   pseudo-elements to apply a light/dark-friendly filter. */
+/* Default: Light theme → force dark date picker */
+input[type="date"] {
+  /* keep a neutral token-driven style but remove any icon/backgrounds */
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5em;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  /* prefer textfield appearance so indicator can be hidden reliably */
+  -webkit-appearance: textfield;
+  appearance: textfield;
+  background-image: none !important;
+}
+
+/* Dark theme date input same token-driven style (no icon) */
+.dark input[type="date"] {
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+/* WebKit/Blink (Chrome, Edge, Safari) and Gecko (Firefox) vendor pseudo-elements.
+   Use filters to tint the native icon in dark mode while leaving default in light mode. */
+/* Hide native calendar picker indicators (remove both the browser's icon and any custom backgrounds) */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-moz-calendar-picker-indicator {
+  display: none !important;
+  -webkit-appearance: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* In dark theme, lighten the native indicator so it remains visible */
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="date"]::-moz-calendar-picker-indicator {
+  filter: invert(1) brightness(1.6) saturate(0.9);
+}
+
+/* For some browsers the datetime text (YYYY-MM-DD) can appear dark on dark backgrounds
+   or vice-versa. Force the internal shadow DOM text color to use our tokens where supported. */
+input[type="date"]::-webkit-datetime-edit {
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+}
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+}
+.dark input[type="date"]::-webkit-datetime-edit,
+.dark input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+}
+
+/* Some platforms (Safari) require a stronger selector to override UA styles; add an important fallback. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.99 !important;
+}
+
 @media (prefers-color-scheme: light) {
   :root {
-    color: #213547;
-    background-color: #ffffff;
+    color: #1E1E1E;
+    background-color: #FFFFFF;
   }
   a:hover {
-    color: #747bff;
+    color: var(--accent-warm);
   }
   button {
-    background-color: #f9f9f9;
+    background-color: #F5F5F5;
   }
 }

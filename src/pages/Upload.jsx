@@ -36,7 +36,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
         const uid = userData?.user?.id
         if (uid) {
           setUserId(uid)
-          const key = `certify:categories:${uid}`
+          const key = `certvault:categories:${uid}`
           const prev = JSON.parse(localStorage.getItem(key) || '[]')
           if (prev && prev.length) setCategories((c) => Array.from(new Set([...(c || []), ...prev])))
         }
@@ -78,47 +78,50 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
       // perform upload via XHR to get progress events
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData?.session?.access_token
-  const bucket = 'certify-certificates'
+      const bucket = 'certvault-certificates'
       const base = import.meta.env.VITE_SUPABASE_URL
   // encode path but keep slashes for storage path
   const encodedPath = path.split('/').map((p) => encodeURIComponent(p)).join('/')
   const uploadUrl = `${base.replace(/\/$/, '')}/storage/v1/object/${bucket}/${encodedPath}`
 
-      // Try XHR PUT to get progress; if it fails, fallback to supabase JS upload
-      try {
-        await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest()
-          xhr.open('PUT', uploadUrl, true)
-          if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
-          // set content type for the uploaded file
-          if (file.type) xhr.setRequestHeader('Content-Type', file.type)
-          xhr.setRequestHeader('x-upsert', 'false')
-          xhr.upload.onprogress = function (e) {
-            if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
-          }
-          xhr.onload = function () {
-            if (xhr.status >= 200 && xhr.status < 300) resolve(true)
-            else {
-              const body = xhr.responseText || ''
-              reject(new Error(`XHR upload failed: ${xhr.status} ${body}`))
+            try {
+              await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest()
+                xhr.open('PUT', uploadUrl, true)
+                if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+                // set content type for the uploaded file
+                if (file.type) xhr.setRequestHeader('Content-Type', file.type)
+                xhr.setRequestHeader('x-upsert', 'false')
+                xhr.upload.onprogress = function (e) {
+                  if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
+                }
+                xhr.onload = function () {
+                  if (xhr.status >= 200 && xhr.status < 300) resolve(true)
+                  else {
+                    const body = xhr.responseText || ''
+                    // provide a hint when common bucket-not-found error occurs
+                    if (xhr.status === 400 && /bucket/.test(body.toLowerCase())) {
+                      console.error('Storage returned 400 — check that the bucket exists and VITE_SUPABASE_BUCKET is set to the correct name')
+                    }
+                    reject(new Error(`XHR upload failed: ${xhr.status} ${body}`))
+                  }
+                }
+                xhr.onerror = function () { reject(new Error('Upload network error')) }
+                xhr.send(file)
+              })
+            } catch (xhrErr) {
+              // log XHR error and attempt fallback via supabase client upload; only show error if fallback fails
+              console.warn('XHR upload failed, falling back to supabase.storage.upload:', xhrErr)
+              const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: false })
+              if (uploadError) {
+                // include fallback error in UI
+                const msg = uploadError.message || String(uploadError)
+                setMessage(`Upload failed: ${xhrErr.message || 'XHR upload failed'}; fallback failed: ${msg}`)
+                throw uploadError
+              }
+              // best-effort: set progress to complete
+              setProgress(100)
             }
-          }
-          xhr.onerror = function () { reject(new Error('Upload network error')) }
-          xhr.send(file)
-        })
-      } catch (xhrErr) {
-        // log XHR error and attempt fallback via supabase client upload; only show error if fallback fails
-        console.warn('XHR upload failed, falling back to supabase.storage.upload:', xhrErr)
-        const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: false })
-        if (uploadError) {
-          // include fallback error in UI
-          const msg = uploadError.message || String(uploadError)
-          setMessage(`Upload failed: ${xhrErr.message || 'XHR upload failed'}; fallback failed: ${msg}`)
-          throw uploadError
-        }
-        // best-effort: set progress to complete
-        setProgress(100)
-      }
 
   // currentUser determined
   // prepare payload
@@ -149,7 +152,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
   // try to generate a signed url so the dashboard can show the file immediately
       let signedUrl = null
       try {
-  const { data: signed } = await supabase.storage.from('certify-certificates').createSignedUrl(path, 3600)
+        const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(path, 3600)
         signedUrl = signed?.signedUrl ?? null
       } catch {
         // ignore signed url errors
@@ -174,10 +177,10 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
   // notify parent component; Dashboard handles merging via realtime or verifyCreated
   onUploaded && onUploaded({ created, signedUrl })
   
-  // persist the custom category for this user locally so it's available next time
+    // persist the custom category for this user locally so it's available next time
   try {
     if (created && userId && category === 'Other' && customCategory && customCategory.trim()) {
-  const key = `certify:categories:${userId}`
+      const key = `certvault:categories:${userId}`
       const prev = JSON.parse(localStorage.getItem(key) || '[]')
       const merged = Array.from(new Set([...(prev || []), customCategory.trim()]))
       localStorage.setItem(key, JSON.stringify(merged))
@@ -198,13 +201,13 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <Card>
-        <h3 className="text-xl font-semibold mb-3">Upload certificate</h3>
+    <div className="p-6 max-w-3xl mx-auto animate-fade-in">
+      <Card className="bg-card rounded-lg shadow-lg">
+        <h3 className="text-xl font-semibold mb-3 text-text-primary">Upload certificate</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-gray-300 mb-1">File (PDF, JPG, PNG) <span className="text-red-400">*</span></label>
-            <input type="file" accept="application/pdf,image/*" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); }} className="w-full px-3 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white" />
+            <label className="block text-sm text-text-secondary mb-1">File (PDF, JPG, PNG) <span className="text-red-400">*</span></label>
+            <input type="file" accept="application/pdf,image/*" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); }} className="w-full px-3 py-2 bg-input border border-secondary rounded-md text-text-primary transition-all duration-300 focus:ring-2 focus:ring-primary" />
             {errors.file && <div className="text-sm text-red-400 mt-1">{errors.file}</div>}
           </div>
 
@@ -220,7 +223,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-gray-300 mb-1">Title <span className="text-red-400">*</span></label>
-              <Input placeholder="e.g. AWS Certified Cloud Practitioner" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Input placeholder="e.g. AWS Certified Cloud Practitioner" value={title} onChange={(e) => setTitle(e.target.value)} className="bg-input border-secondary text-text-primary focus:ring-primary" />
               {errors.title && <div className="text-sm text-red-400 mt-1">{errors.title}</div>}
             </div>
             <div>
@@ -259,11 +262,11 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 />
                 {showSuggestions && filteredAuths && filteredAuths.length > 0 && (
-                  <div className="absolute left-0 right-0 bg-neutral-800 border border-neutral-600 rounded-md mt-1 max-h-40 overflow-y-auto z-40">
+                  <div className="absolute left-0 right-0 bg-card border border-secondary rounded-md mt-1 max-h-40 overflow-y-auto z-40">
                     {filteredAuths.map((a, i) => (
                       <div key={a}
                         onMouseDown={(ev) => { ev.preventDefault(); setIssuingAuthority(a); setShowSuggestions(false) }}
-                        className={`px-3 py-2 cursor-pointer ${i === highlight ? 'bg-neutral-600' : 'hover:bg-neutral-700'}`}>
+                        className={`px-3 py-2 cursor-pointer ${i === highlight ? 'bg-input' : 'hover:bg-input'}`}>
                         {a}
                       </div>
                     ))}
@@ -286,12 +289,12 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
             </div>
             <div>
               <label className="block text-sm text-gray-300 mb-1">Category <span className="text-red-400">*</span></label>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 rounded-md bg-neutral-700 border border-neutral-600 text-white">
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 rounded-md bg-input border border-secondary text-text-primary transition-all duration-300 focus:ring-2 focus:ring-primary">
                 {categories.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               {category === 'Other' && (
                 <div>
-                  <input value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} placeholder="Name your category" className="mt-2 w-full px-3 py-2 rounded-md bg-neutral-800 border border-neutral-600 text-white" />
+                  <input value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} placeholder="Name your category" className="mt-2 w-full px-3 py-2 rounded-md bg-input border border-secondary text-text-primary" />
                   {errors.customCategory && <div className="text-sm text-red-400 mt-1">{errors.customCategory}</div>}
                 </div>
               )}
@@ -301,7 +304,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
 
           <div>
             <label className="block text-sm text-gray-300 mb-1">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-2 bg-neutral-700 rounded-md text-white" />
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-2 bg-input rounded-md text-text-primary border border-secondary transition-all duration-300 focus:ring-2 focus:ring-primary" />
           </div>
 
           <div className="flex items-center">
@@ -310,7 +313,7 @@ export default function Upload({ onUploaded, authoritySuggestions = [] }) {
           </div>
 
           <div className="pt-4">
-            <Button type="submit" disabled={loading} className="w-full md:w-auto">Upload</Button>
+            <Button type="submit" disabled={loading} className="w-full md:w-auto" variant="secondary" aria-label="Upload certificate">Upload</Button>
           </div>
 
           {message && <p className="text-sm text-red-400">{message}</p>}

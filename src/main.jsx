@@ -4,6 +4,19 @@ import './index.css'
 import App from './App.jsx'
 import { supabase } from './lib/supabaseClient'
 
+// Apply theme class early (before React mounts) to avoid flash
+try {
+  const saved = localStorage.getItem('certify:theme')
+  if (saved === 'dark') document.documentElement.classList.add('dark')
+  else if (saved === 'light') document.documentElement.classList.remove('dark')
+  else {
+    // default to dark theme when no explicit saved preference exists
+    document.documentElement.classList.add('dark')
+  }
+} catch {
+  // ignore localStorage errors
+}
+
 // If the app was opened via a Supabase magic link, parse the session and
 // then remove the token fragment from the URL so tokens are not kept in history.
 ;(async () => {

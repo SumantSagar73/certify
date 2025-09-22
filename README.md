@@ -23,6 +23,9 @@ npm install
 ```
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
+
+# Optional: configure the storage bucket name the app should use (defaults to `certify-certificates`)
+VITE_SUPABASE_BUCKET=certify-certificates
 ```
 
 3. Run the dev server:

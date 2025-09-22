@@ -1,6 +1,17 @@
-export default function Button({ children, className = '', ...props }) {
+export default function Button({ children, className = '', variant = 'primary', ...props }) {
+  const base = 'btn'
+  const variants = {
+    primary: 'btn-primary',
+    secondary: 'btn-secondary',
+    danger: 'btn-danger',
+    muted: 'btn-muted',
+    warning: 'btn-warning',
+    ghost: 'btn-ghost',
+  }
+
+  const cls = `${base} ${variants[variant] || variants.primary} ${className}`.trim()
   return (
-    <button className={`px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 transition ${className}`} {...props}>
+    <button className={cls} {...props}>
       {children}
     </button>
   )
