@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Button from './Button'
 
 export default function HelpTour({ open = false, steps = [], onClose = () => {} }) {
   const [index, setIndex] = useState(0)
@@ -43,11 +44,11 @@ export default function HelpTour({ open = false, steps = [], onClose = () => {} 
         <div className="flex items-center justify-between">
           <div className="text-sm text-text-secondary">Step {index + 1} of {steps.length}</div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setIndex((i) => Math.max(0, i - 1))} className="px-3 py-1 rounded-md bg-input border border-secondary text-text-primary" disabled={index === 0}>Prev</button>
+            <Button type="button" variant="muted" onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0}>Prev</Button>
             {index < steps.length - 1 ? (
-              <button type="button" onClick={() => setIndex((i) => Math.min(steps.length - 1, i + 1))} className="px-3 py-1 rounded-md btn-secondary">Next</button>
+              <Button type="button" variant="secondary" onClick={() => setIndex((i) => Math.min(steps.length - 1, i + 1))}>Next</Button>
             ) : (
-              <button type="button" onClick={() => { onClose(); setIndex(0) }} className="px-3 py-1 rounded-md btn-primary">Done</button>
+              <Button type="button" variant="primary" onClick={() => { onClose(); setIndex(0) }}>Done</Button>
             )}
           </div>
         </div>
