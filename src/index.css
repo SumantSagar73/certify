@@ -232,6 +232,16 @@ button:focus-visible {
 }
 .select-badge.selected svg { color: #fff; }
 
+/* Help tour highlight (non-invasive) */
+.help-highlight {
+  position: relative;
+  z-index: 70;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.18), 0 0 0 6px rgba(217,142,95,0.12);
+  border-radius: 8px;
+  transition: box-shadow 180ms ease, transform 180ms ease;
+  transform: translateZ(0);
+}
+
 /* Keep the native calendar picker indicator and tint it for dark/light themes.
    Previously we removed native appearance and injected SVG backgrounds. The
    user prefers the native icon; restore native appearance and use vendor

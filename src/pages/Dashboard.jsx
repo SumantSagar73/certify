@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { supabase } from '../lib/supabaseClient'
 import Upload from './Upload'
 import Header from '../components/Header'
+import HelpTour from '../components/HelpTour'
 import Toast from '../components/Toast'
 import Input from '../components/Input'
 import Button from '../components/Button'
@@ -78,6 +79,7 @@ export default function Dashboard({ session }) {
   const [pendingDelete, setPendingDelete] = useState(null)
   const pendingDeleteRef = useRef(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [showHelp, setShowHelp] = useState(() => !localStorage.getItem('certify:help_seen'))
   const [urls, setUrls] = useState({})
   const [selected, setSelected] = useState([])
 
@@ -217,7 +219,27 @@ export default function Dashboard({ session }) {
   // fetch logic is executed in useEffect to avoid stale dependencies
 
   async function signOut() {
-    await supabase.auth.signOut()
+    try {
+      console.log('Signing out...')
+      const res = await supabase.auth.signOut()
+      console.log('supabase.signOut result', res)
+
+      // Clear common localStorage/sessionStorage keys Supabase might use
+  try { localStorage.removeItem('supabase.auth.token') } catch (e) { console.warn('localStorage clear failed', e) }
+  try { sessionStorage.removeItem('supabase.auth.token') } catch (e) { console.warn('sessionStorage clear failed', e) }
+
+      // If signOut returned an error, try explicit API signOut call
+      if (res?.error) {
+        console.warn('supabase.signOut returned error, retrying with scope')
+        try { await supabase.auth.signOut({ scope: 'global' }) } catch (e) { console.warn('retry signOut failed', e) }
+      }
+
+      // Final fallback: reload page so the auth listener in App re-evaluates session
+      window.location.reload()
+    } catch (err) {
+      console.error('signOut error', err)
+      alert('Sign out failed: ' + (err?.message || String(err)))
+    }
   }
 
   async function handleDelete(c) {
@@ -376,8 +398,20 @@ export default function Dashboard({ session }) {
 
   return (
     <div className="min-h-screen bg-bg-dark text-text-primary animate-fade-in">
+      <HelpTour
+        open={showHelp}
+        steps={[
+          { selector: '#search-title', title: 'Search', content: 'Search certificates by title.' },
+          { selector: '#filter-authority', title: 'Issuing authority', content: 'Filter by the issuing authority.' },
+          { selector: '#filter-category', title: 'Category', content: 'Pick a category to filter results.' },
+          { selector: '#date-from', title: 'Date range', content: 'Filter certificates by issue date range.' },
+          { selector: '#upload-cta', title: 'Upload', content: 'Upload a new certificate (PDF/JPG/PNG).' },
+          { selector: '.select-badge', title: 'Select', content: 'Click the orange badge to select certificates for bulk actions.' },
+        ]}
+        onClose={() => { localStorage.setItem('certify:help_seen', '1'); setShowHelp(false) }}
+      />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Header userEmail={user?.email} onUploadToggle={() => setShowUpload((s) => !s)} onSignOut={signOut} showUpload={showUpload} />
+  <Header userEmail={user?.email} onUploadToggle={() => setShowUpload((s) => !s)} onSignOut={signOut} showUpload={showUpload} onHelp={() => setShowHelp(true)} />
 
         {showUpload ? (
           <Upload authoritySuggestions={authoritySuggestions} onUploaded={(payload) => {
@@ -413,7 +447,7 @@ export default function Dashboard({ session }) {
                 <p className="text-text-secondary text-lg">No certificates yet.</p>
                 <p className="text-secondary">Use Upload to add PDF or image certificates.</p>
                 <div>
-                  <Button variant="primary" onClick={() => setShowUpload(true)} className="mt-4">Upload certificate</Button>
+                  <Button id="upload-cta" variant="primary" onClick={() => setShowUpload(true)} className="mt-4">Upload certificate</Button>
                 </div>
               </div>
             )}
@@ -426,17 +460,17 @@ export default function Dashboard({ session }) {
             {/* Filters - hidden when empty */}
             {initialized && (certs.length > 0 || anyFiltersActive) && (
             <div className="mb-8 flex flex-wrap gap-4 items-end animate-slide-in">
-              <div className="flex-1 min-w-64">
-                <label className="block text-sm text-text-secondary mb-1">Search title</label>
-                <Input placeholder="Search title..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-              </div>
+                <div className="flex-1 min-w-64">
+                  <label className="block text-sm text-text-secondary mb-1">Search title</label>
+                  <Input id="search-title" placeholder="Search title..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
               <div className="flex-1 min-w-64">
                 <label className="block text-sm text-text-secondary mb-1">Issuing authority</label>
-                <Input placeholder="Issuing authority" value={filterAuthority} onChange={(e) => setFilterAuthority(e.target.value)} />
+                <Input id="filter-authority" placeholder="Issuing authority" value={filterAuthority} onChange={(e) => setFilterAuthority(e.target.value)} />
               </div>
               <div className="min-w-48">
                 <label className="block text-sm text-text-secondary mb-1">Category</label>
-              <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full px-3 py-3 rounded-md bg-input border border-secondary text-text-primary transition-all duration-300 focus:ring-2 focus:ring-primary text-sm">
+              <select id="filter-category" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full px-3 py-3 rounded-md bg-input border border-secondary text-text-primary transition-all duration-300 focus:ring-2 focus:ring-primary text-sm">
                 <option value="">All categories</option>
                 <option value="Academic">Academic</option>
                 <option value="Online Course">Online Course</option>
@@ -446,13 +480,13 @@ export default function Dashboard({ session }) {
                 <option value="Other">Other</option>
               </select>
             </div>
-            <div className="min-w-32">
+              <div className="min-w-32">
               <label className="block text-sm text-text-secondary mb-1">From</label>
-              <Input type="date" value={filterFromDate} onChange={(e) => setFilterFromDate(e.target.value)} className="py-3" />
+              <Input id="date-from" type="date" value={filterFromDate} onChange={(e) => setFilterFromDate(e.target.value)} className="py-3" />
             </div>
             <div className="min-w-32">
               <label className="block text-sm text-text-secondary mb-1">To</label>
-              <Input type="date" value={filterToDate} onChange={(e) => setFilterToDate(e.target.value)} className="py-3" />
+              <Input id="date-to" type="date" value={filterToDate} onChange={(e) => setFilterToDate(e.target.value)} className="py-3" />
             </div>
             <div className="flex items-center gap-2">
               <Button variant="secondary" onClick={() => { setPage(1) }}>Apply</Button>

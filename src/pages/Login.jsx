@@ -46,7 +46,7 @@ export default function Login() {
             />
           </div>
 
-          <Button type="submit" disabled={loading} className="w-full" variant="primary">
+          <Button type="submit" disabled={loading} className="w-full" variant="secondary">
             {loading ? 'Sending...' : 'Send magic link'}
           </Button>
         </form>

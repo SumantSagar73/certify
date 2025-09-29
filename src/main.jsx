@@ -21,15 +21,43 @@ try {
 // then remove the token fragment from the URL so tokens are not kept in history.
 ;(async () => {
   try {
-    // supabase v2 helper to parse session from url
-    const { data, error } = await supabase.auth.getSessionFromUrl({ storeSession: true })
-    if (!error && data) {
-      // remove hash fragments containing the token from URL
+    // If the helper exists (some SDK versions), use it. Otherwise try a small
+    // manual fallback to parse the URL fragment for access/refresh tokens and
+    // call supabase.auth.setSession so the app receives the session.
+    if (typeof supabase?.auth?.getSessionFromUrl === 'function') {
+      const { data, error } = await supabase.auth.getSessionFromUrl({ storeSession: true })
+      if (!error && data) {
+        try {
+          const clean = window.location.pathname + window.location.search
+          window.history.replaceState({}, document.title, clean)
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      // Manual fallback: check for token fragments in the URL hash
       try {
-        const clean = window.location.pathname + window.location.search
-        window.history.replaceState({}, document.title, clean)
-      } catch {
-        // ignore
+        const hash = window.location.hash || ''
+        if (hash.includes('access_token') || hash.includes('refresh_token')) {
+          const params = Object.fromEntries(hash.replace(/^#/, '').split('&').map((p) => {
+            const [k, v] = p.split('=')
+            return [k, decodeURIComponent(v || '')]
+          }))
+          const access_token = params.access_token || params.accessToken || null
+          const refresh_token = params.refresh_token || params.refreshToken || null
+          if (access_token || refresh_token) {
+            // setSession will store session in the client and trigger auth listeners
+            await supabase.auth.setSession({ access_token, refresh_token })
+            try {
+              const clean = window.location.pathname + window.location.search
+              window.history.replaceState({}, document.title, clean)
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('manual auth fragment parse failed', e)
       }
     }
   } catch (err) {
